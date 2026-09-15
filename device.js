@@ -107,10 +107,32 @@ class DeviceBridge {
 
       let stdout = '';
       let stderr = '';
-      let timedOut = false;
+      let resolved = false;
+
+      const doResolve = () => {
+        if (!resolved) {
+          resolved = true;
+          // Send ENTER to dismiss "Press ENTER to exit>" prompt, then kill
+          try { proc.stdin.write('\n'); } catch (e) {}
+          setTimeout(() => { try { proc.kill(); } catch (e) {} }, 500);
+          resolve({ stdout: stdout.trim(), stderr: stderr.trim() });
+        }
+      };
+
+      const doReject = (err) => {
+        if (!resolved) {
+          resolved = true;
+          try { proc.kill(); } catch (e) {}
+          reject(err);
+        }
+      };
 
       proc.stdout.on('data', (data) => {
         stdout += data.toString();
+        // pymobiledevice3 prints "Press ENTER to exit>" when done successfully
+        if (stdout.includes('Press ENTER') || stdout.includes('press enter')) {
+          doResolve();
+        }
       });
 
       proc.stderr.on('data', (data) => {
@@ -118,13 +140,11 @@ class DeviceBridge {
       });
 
       proc.on('close', (code) => {
-        if (timedOut) return;
-
+        if (resolved) return;
         if (code === 0) {
-          resolve({ stdout: stdout.trim(), stderr: stderr.trim() });
+          doResolve();
         } else {
           const combined = stderr + stdout;
-          // Filter out deprecation warnings and info logs to get actual error
           const lines = combined.split('\n').filter(l =>
             !l.includes('RequestsDependencyWarning') &&
             !l.includes('warnings.warn') &&
@@ -135,23 +155,18 @@ class DeviceBridge {
             l.trim().length > 0
           );
           const cleanError = lines.join('\n').trim();
-          reject(new Error(cleanError || `Command failed with code ${code}`));
+          doReject(new Error(cleanError || `Command failed with code ${code}`));
         }
       });
 
       proc.on('error', (err) => {
-        if (timedOut) return;
-        reject(new Error(`Failed to run pymobiledevice3: ${err.message}`));
+        doReject(new Error(`Failed to run pymobiledevice3: ${err.message}`));
       });
 
-      // 60 second timeout — auto-tunnel can take 15-20 seconds
+      // 90 second timeout — auto-tunnel can take 15-30 seconds
       setTimeout(() => {
-        if (proc.exitCode === null) {
-          timedOut = true;
-          proc.kill();
-          reject(new Error('Command timed out (60s). Make sure iPhone is connected and Developer Mode is on.'));
-        }
-      }, 60000);
+        doReject(new Error('Command timed out (90s). Make sure iPhone is connected and Developer Mode is on.'));
+      }, 90000);
     });
   }
 
