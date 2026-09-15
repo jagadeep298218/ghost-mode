@@ -220,14 +220,7 @@ async function init() {
     return;
   }
 
-  setStatus('searching', 'Starting tunnel (may need admin)...');
-  const tunnel = await window.ghostAPI.startTunnel();
-  if (tunnel.error) {
-    setStatus('error', `Tunnel failed: ${tunnel.error}`);
-    return;
-  }
-
-  setStatus('connected', 'Device connected and ready');
+  setStatus('connected', 'Device connected — ready to spoof');
   loadHome();
 }
 
