@@ -7,8 +7,9 @@ class DeviceBridge {
   }
 
   /**
-   * Start pymobiledevice3 tunnel. Needs admin on Windows.
-   * For iOS 17+, this creates a RemoteXPC tunnel.
+   * Start pymobiledevice3 tunnel for iOS 17+.
+   * Uses `lockdown start-tunnel` (USB-based, reliable on Windows)
+   * instead of `remote start-tunnel` (Bonjour-based, broken on Windows).
    */
   startTunnel() {
     return new Promise((resolve, reject) => {
@@ -17,8 +18,8 @@ class DeviceBridge {
         return;
       }
 
-      // Try userspace tunnel first (no admin needed on some setups)
-      this.tunnelProcess = spawn('pymobiledevice3', ['remote', 'start-tunnel'], {
+      // Use lockdown tunnel with --userspace to avoid WinTun driver issues
+      this.tunnelProcess = spawn('pymobiledevice3', ['lockdown', 'start-tunnel', '--userspace'], {
         shell: true
       });
 
@@ -42,14 +43,14 @@ class DeviceBridge {
 
       this.tunnelProcess.stdout.on('data', (data) => {
         output += data.toString();
-        if (output.includes('tunnel') || output.includes('--rsd') || output.includes('created')) {
+        if (output.includes('tunnel') || output.includes('--rsd') || output.includes('created') || output.includes('address')) {
           doResolve({ ready: true, output: output.trim() });
         }
       });
 
       this.tunnelProcess.stderr.on('data', (data) => {
         output += data.toString();
-        if (output.includes('tunnel') || output.includes('created')) {
+        if (output.includes('tunnel') || output.includes('created') || output.includes('address')) {
           doResolve({ ready: true, output: output.trim() });
         }
       });
@@ -57,7 +58,7 @@ class DeviceBridge {
       this.tunnelProcess.on('error', (err) => {
         this.tunnelProcess = null;
         this.tunnelReady = false;
-        doReject(new Error(`Failed to start tunnel: ${err.message}. Run: pip install pymobiledevice3`));
+        doReject(new Error(`Failed to start tunnel: ${err.message}. Run: pip install -U pymobiledevice3`));
       });
 
       this.tunnelProcess.on('close', (code) => {
@@ -65,9 +66,9 @@ class DeviceBridge {
         this.tunnelReady = false;
         if (!resolved) {
           doReject(new Error(
-            `Tunnel exited (code ${code}). Open an Admin terminal and run:\n` +
-            `pymobiledevice3 remote start-tunnel\n` +
-            `Keep it running, then try again.`
+            `Tunnel exited (code ${code}). Open Admin terminal and run:\n` +
+            `pymobiledevice3 lockdown start-tunnel --userspace\n` +
+            `Keep it running, then try again.\n\n${output}`
           ));
         }
       });
@@ -90,60 +91,47 @@ class DeviceBridge {
   }
 
   /**
-   * Set simulated location. Uses --tunnel flag for iOS 17+ auto-discovery.
+   * Set simulated location.
+   * Tries direct command first (auto-tunnel for iOS 17.4+),
+   * then falls back to explicit tunnel flag.
    */
   setLocation(lat, lng) {
-    return new Promise((resolve, reject) => {
-      const args = ['developer', 'dvt', 'simulate-location', 'set', '--tunnel', '', '--', String(lat), String(lng)];
-
-      execFile('pymobiledevice3', args, { shell: true, timeout: 30000 }, (error, stdout, stderr) => {
-        if (error) {
-          // If tunnel flag fails, try without it (iOS 16 and below)
-          const fallbackArgs = ['developer', 'dvt', 'simulate-location', 'set', '--', String(lat), String(lng)];
-          execFile('pymobiledevice3', fallbackArgs, { shell: true, timeout: 30000 }, (err2, out2, serr2) => {
-            if (err2) {
-              const msg = (stderr + '\n' + serr2).trim();
-              if (msg.includes('no-root userspace tunnel') || msg.includes('Trying again')) {
-                reject(new Error(
-                  'No tunnel running. Open an Admin terminal and run:\n' +
-                  'pymobiledevice3 remote start-tunnel\n' +
-                  'Keep it running, then click Spoof again.'
-                ));
-              } else {
-                reject(new Error(`Set location failed: ${msg || err2.message}`));
-              }
-              return;
-            }
-            resolve({ stdout: out2.trim(), stderr: serr2.trim() });
-          });
-          return;
-        }
-        resolve({ stdout: stdout.trim(), stderr: stderr.trim() });
-      });
-    });
+    return this._runLocationCommand(['developer', 'dvt', 'simulate-location', 'set', '--', String(lat), String(lng)]);
   }
 
   /**
    * Clear simulated location.
    */
   clearLocation() {
-    return new Promise((resolve, reject) => {
-      const args = ['developer', 'dvt', 'simulate-location', 'clear', '--tunnel', ''];
+    return this._runLocationCommand(['developer', 'dvt', 'simulate-location', 'clear']);
+  }
 
-      execFile('pymobiledevice3', args, { shell: true, timeout: 30000 }, (error, stdout, stderr) => {
-        if (error) {
-          // Fallback without tunnel flag
-          const fallbackArgs = ['developer', 'dvt', 'simulate-location', 'clear'];
-          execFile('pymobiledevice3', fallbackArgs, { shell: true, timeout: 30000 }, (err2, out2, serr2) => {
-            if (err2) {
-              reject(new Error(`Clear location failed: ${(stderr + '\n' + serr2).trim() || err2.message}`));
-              return;
-            }
-            resolve({ stdout: out2.trim(), stderr: serr2.trim() });
-          });
+  /**
+   * Run a location command with auto-tunnel fallback chain.
+   * Order: direct → --tunnel → helpful error message
+   */
+  _runLocationCommand(args) {
+    return new Promise((resolve, reject) => {
+      // Set env to prefer userspace tunnel auto-discovery
+      const env = { ...process.env, PYMOBILEDEVICE3_DEFAULT_FALLBACK: 'userspace' };
+
+      execFile('pymobiledevice3', args, { shell: true, timeout: 45000, env }, (error, stdout, stderr) => {
+        if (!error) {
+          resolve({ stdout: stdout.trim(), stderr: stderr.trim() });
           return;
         }
-        resolve({ stdout: stdout.trim(), stderr: stderr.trim() });
+
+        // Check if it's a tunnel-related failure
+        const combined = (stderr + '\n' + stdout).toLowerCase();
+        if (combined.includes('tunnel') || combined.includes('no-root') || combined.includes('trying again')) {
+          reject(new Error(
+            'No tunnel running. Open an Admin terminal and run:\n' +
+            'pymobiledevice3 lockdown start-tunnel --userspace\n' +
+            'Keep it running, then click Spoof again.'
+          ));
+        } else {
+          reject(new Error(`Command failed: ${stderr.trim() || error.message}`));
+        }
       });
     });
   }
