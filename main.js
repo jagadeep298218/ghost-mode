@@ -9,10 +9,16 @@ let store;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
+    width: 1280,
+    height: 850,
     title: 'Ghost Mode',
-    backgroundColor: '#1a1a2e',
+    backgroundColor: '#080818',
+    titleBarStyle: 'hidden',
+    titleBarOverlay: {
+      color: '#0c0c1c',
+      symbolColor: '#9898b0',
+      height: 36
+    },
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

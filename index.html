@@ -5,7 +5,7 @@
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'self';
                  style-src 'self' 'unsafe-inline';
-                 img-src 'self' data: https://*.tile.openstreetmap.org;
+                 img-src 'self' data: https://*.tile.openstreetmap.org https://*.basemaps.cartocdn.com;
                  connect-src 'self';
                  script-src 'self';">
   <title>Ghost Mode</title>
@@ -16,28 +16,46 @@
 
   <!-- Top Bar -->
   <div class="topbar">
-    <div class="logo">GHOST MODE</div>
+    <div class="logo-group">
+      <div class="logo-icon">&#128123;</div>
+      <div class="logo-text">
+        <h1>Ghost Mode</h1>
+        <span>Location Freedom. On Your Terms.</span>
+      </div>
+    </div>
+
     <div class="search-box">
       <input id="search" type="text" placeholder="Search address or paste coordinates..." />
-      <button id="searchBtn" class="btn btn-ghost">Search</button>
+      <button id="searchBtn" class="btn btn-search">Search</button>
+    </div>
+
+    <div class="topbar-actions">
+      <button class="icon-btn" id="settingsBtn" title="Settings">&#9881;</button>
+      <button class="icon-btn" id="helpBtn" title="Help">?</button>
     </div>
   </div>
 
-  <!-- Map -->
-  <div id="map"></div>
+  <!-- Map + Overlays -->
+  <div class="map-container">
+    <div id="map"></div>
 
-  <!-- Home Quick Button (overlay on map) -->
-  <div class="home-btn-overlay">
-    <button id="goHomeBtn" class="btn-home" title="Spoof to Home" disabled>&#8962;</button>
+    <!-- Home Quick Button -->
+    <div class="home-btn-overlay">
+      <button id="goHomeBtn" class="btn-home" title="Spoof to Home" disabled>&#8962;</button>
+    </div>
   </div>
 
   <!-- Bottom Panel -->
   <div class="bottom-panel">
-    <div class="coords" id="coords">Click the map to select a location</div>
+    <div class="coords-box">
+      <div class="coords-pin"></div>
+      <span class="coords-text" id="coords">Select a location</span>
+      <button class="coords-copy" id="copyBtn" title="Copy coordinates">&#9112;</button>
+    </div>
     <div class="actions">
-      <button id="saveHomeBtn" class="btn btn-ghost" disabled>Save as Home</button>
-      <button id="spoofBtn" class="btn btn-primary" disabled>Spoof Location</button>
-      <button id="resetBtn" class="btn btn-danger" disabled>Reset to Real</button>
+      <button id="saveHomeBtn" class="btn btn-glass" disabled>&#8962; Save as Home</button>
+      <button id="spoofBtn" class="btn btn-spoof" disabled>&#9992; Spoof Location</button>
+      <button id="resetBtn" class="btn btn-reset" disabled>&#8635; Reset to Real</button>
     </div>
   </div>
 

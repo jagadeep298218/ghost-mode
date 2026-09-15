@@ -10,9 +10,10 @@ const map = L.map('map', {
   zoomControl: true
 }).setView([20, 0], 3);
 
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '&copy; OpenStreetMap contributors',
-  maxZoom: 19
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
+  subdomains: 'abcd',
+  maxZoom: 20
 }).addTo(map);
 
 // ── DOM Elements ─────────────────────────────────────────────
@@ -35,10 +36,17 @@ function placeMarker(lat, lng) {
   selectedLat = lat;
   selectedLng = lng;
 
+  const ghostIcon = L.divIcon({
+    html: '<div class="ghost-marker"></div>',
+    iconSize: [20, 20],
+    iconAnchor: [10, 10],
+    className: ''
+  });
+
   if (marker) {
     marker.setLatLng([lat, lng]);
   } else {
-    marker = L.marker([lat, lng], { draggable: true }).addTo(map);
+    marker = L.marker([lat, lng], { draggable: true, icon: ghostIcon }).addTo(map);
     marker.on('dragend', () => {
       const pos = marker.getLatLng();
       placeMarker(pos.lat, pos.lng);
@@ -179,8 +187,9 @@ async function loadHome() {
       homeMarker.setLatLng([home.lat, home.lng]);
     } else {
       const homeIcon = L.divIcon({
-        html: '<div style="background:#6c63ff;width:12px;height:12px;border-radius:50%;border:2px solid white;"></div>',
-        iconSize: [12, 12],
+        html: '<div class="home-marker"></div>',
+        iconSize: [14, 14],
+        iconAnchor: [7, 7],
         className: ''
       });
       homeMarker = L.marker([home.lat, home.lng], { icon: homeIcon, interactive: false }).addTo(map);
@@ -221,5 +230,13 @@ async function init() {
   setStatus('connected', 'Device connected and ready');
   loadHome();
 }
+
+// ── Copy Coordinates ─────────────────────────────────────────
+document.getElementById('copyBtn').addEventListener('click', () => {
+  if (selectedLat === null) return;
+  const text = `${selectedLat.toFixed(6)}, ${selectedLng.toFixed(6)}`;
+  navigator.clipboard.writeText(text);
+  setStatus('connected', 'Coordinates copied!');
+});
 
 init();
