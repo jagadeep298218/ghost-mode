@@ -2,10 +2,52 @@
 <html>
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self';
+                 style-src 'self' 'unsafe-inline';
+                 img-src 'self' data: https://*.tile.openstreetmap.org;
+                 connect-src 'self';
+                 script-src 'self';">
   <title>Ghost Mode</title>
+  <link rel="stylesheet" href="node_modules/leaflet/dist/leaflet.css">
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <h1>Ghost Mode</h1>
-  <p>App is running.</p>
+
+  <!-- Top Bar -->
+  <div class="topbar">
+    <div class="logo">GHOST MODE</div>
+    <div class="search-box">
+      <input id="search" type="text" placeholder="Search address or paste coordinates..." />
+      <button id="searchBtn" class="btn btn-ghost">Search</button>
+    </div>
+  </div>
+
+  <!-- Map -->
+  <div id="map"></div>
+
+  <!-- Home Quick Button (overlay on map) -->
+  <div class="home-btn-overlay">
+    <button id="goHomeBtn" class="btn-home" title="Spoof to Home" disabled>&#8962;</button>
+  </div>
+
+  <!-- Bottom Panel -->
+  <div class="bottom-panel">
+    <div class="coords" id="coords">Click the map to select a location</div>
+    <div class="actions">
+      <button id="saveHomeBtn" class="btn btn-ghost" disabled>Save as Home</button>
+      <button id="spoofBtn" class="btn btn-primary" disabled>Spoof Location</button>
+      <button id="resetBtn" class="btn btn-danger" disabled>Reset to Real</button>
+    </div>
+  </div>
+
+  <!-- Status Bar -->
+  <div class="status-bar">
+    <div class="status-dot" id="statusDot"></div>
+    <span id="statusText">Initializing...</span>
+  </div>
+
+  <script src="node_modules/leaflet/dist/leaflet.js"></script>
+  <script src="renderer.js"></script>
 </body>
 </html>
