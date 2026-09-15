@@ -15,5 +15,23 @@
   "devDependencies": {
     "electron": "^44.4.0",
     "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.ghostmode.app",
+    "productName": "Ghost Mode",
+    "win": {
+      "target": "portable"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "device.js",
+      "store.js",
+      "index.html",
+      "renderer.js",
+      "styles.css",
+      "node_modules/leaflet/**",
+      "assets/**"
+    ]
   }
 }
