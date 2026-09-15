@@ -8,8 +8,7 @@ class DeviceBridge {
 
   /**
    * Start pymobiledevice3 tunnel for iOS 17+.
-   * Uses `lockdown start-tunnel` (USB-based, reliable on Windows)
-   * instead of `remote start-tunnel` (Bonjour-based, broken on Windows).
+   * Uses lockdown (USB-based) instead of remote (Bonjour-based).
    */
   startTunnel() {
     return new Promise((resolve, reject) => {
@@ -18,8 +17,7 @@ class DeviceBridge {
         return;
       }
 
-      // Use lockdown tunnel with --userspace to avoid WinTun driver issues
-      this.tunnelProcess = spawn('pymobiledevice3', ['lockdown', 'start-tunnel', '--userspace'], {
+      this.tunnelProcess = spawn('pymobiledevice3', ['lockdown', 'start-tunnel'], {
         shell: true
       });
 
@@ -43,42 +41,32 @@ class DeviceBridge {
 
       this.tunnelProcess.stdout.on('data', (data) => {
         output += data.toString();
-        if (output.includes('tunnel') || output.includes('--rsd') || output.includes('created') || output.includes('address')) {
-          doResolve({ ready: true, output: output.trim() });
-        }
       });
 
       this.tunnelProcess.stderr.on('data', (data) => {
         output += data.toString();
-        if (output.includes('tunnel') || output.includes('created') || output.includes('address')) {
-          doResolve({ ready: true, output: output.trim() });
-        }
       });
 
       this.tunnelProcess.on('error', (err) => {
         this.tunnelProcess = null;
         this.tunnelReady = false;
-        doReject(new Error(`Failed to start tunnel: ${err.message}. Run: pip install -U pymobiledevice3`));
+        doReject(new Error(`Failed to start tunnel: ${err.message}`));
       });
 
       this.tunnelProcess.on('close', (code) => {
         this.tunnelProcess = null;
         this.tunnelReady = false;
         if (!resolved) {
-          doReject(new Error(
-            `Tunnel exited (code ${code}). Open Admin terminal and run:\n` +
-            `pymobiledevice3 lockdown start-tunnel --userspace\n` +
-            `Keep it running, then try again.\n\n${output}`
-          ));
+          doReject(new Error(`Tunnel exited (code ${code}).\n${output}`));
         }
       });
 
-      // Assume ready after 10s if process still alive
+      // Assume ready after 8s if process still alive
       setTimeout(() => {
         if (!resolved && this.tunnelProcess) {
           doResolve({ ready: true, output: output.trim(), assumed: true });
         }
-      }, 10000);
+      }, 8000);
     });
   }
 
@@ -91,57 +79,85 @@ class DeviceBridge {
   }
 
   /**
-   * Set simulated location.
-   * Tries direct command first (auto-tunnel for iOS 17.4+),
-   * then falls back to explicit tunnel flag.
+   * Set simulated location using spawn (not execFile) so pymobiledevice3
+   * can auto-tunnel in-process for iOS 17+. This takes 10-20 seconds
+   * as it establishes its own userspace tunnel.
    */
   setLocation(lat, lng) {
     return this._runLocationCommand(['developer', 'dvt', 'simulate-location', 'set', '--', String(lat), String(lng)]);
   }
 
-  /**
-   * Clear simulated location.
-   */
   clearLocation() {
     return this._runLocationCommand(['developer', 'dvt', 'simulate-location', 'clear']);
   }
 
   /**
-   * Run a location command with auto-tunnel fallback chain.
-   * Order: direct → --tunnel → helpful error message
+   * Run a pymobiledevice3 developer command using spawn.
+   * Lets the process auto-create a userspace tunnel in-process.
+   * Waits for process to exit, captures all output.
    */
   _runLocationCommand(args) {
     return new Promise((resolve, reject) => {
-      // Set env to prefer userspace tunnel auto-discovery
       const env = { ...process.env, PYMOBILEDEVICE3_DEFAULT_FALLBACK: 'userspace' };
 
-      execFile('pymobiledevice3', args, { shell: true, timeout: 45000, env }, (error, stdout, stderr) => {
-        if (!error) {
-          resolve({ stdout: stdout.trim(), stderr: stderr.trim() });
-          return;
-        }
+      const proc = spawn('pymobiledevice3', args, {
+        shell: true,
+        env
+      });
 
-        // Check if it's a tunnel-related failure
-        const combined = (stderr + '\n' + stdout).toLowerCase();
-        if (combined.includes('tunnel') || combined.includes('no-root') || combined.includes('trying again')) {
-          reject(new Error(
-            'No tunnel running. Open an Admin terminal and run:\n' +
-            'pymobiledevice3 lockdown start-tunnel --userspace\n' +
-            'Keep it running, then click Spoof again.'
-          ));
+      let stdout = '';
+      let stderr = '';
+      let timedOut = false;
+
+      proc.stdout.on('data', (data) => {
+        stdout += data.toString();
+      });
+
+      proc.stderr.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      proc.on('close', (code) => {
+        if (timedOut) return;
+
+        if (code === 0) {
+          resolve({ stdout: stdout.trim(), stderr: stderr.trim() });
         } else {
-          reject(new Error(`Command failed: ${stderr.trim() || error.message}`));
+          const combined = stderr + stdout;
+          // Filter out deprecation warnings and info logs to get actual error
+          const lines = combined.split('\n').filter(l =>
+            !l.includes('RequestsDependencyWarning') &&
+            !l.includes('warnings.warn') &&
+            !l.includes('DeprecationWarning') &&
+            !l.includes('datetime.datetime') &&
+            !l.includes('requests/__init__') &&
+            !l.includes('dateutil/tz') &&
+            l.trim().length > 0
+          );
+          const cleanError = lines.join('\n').trim();
+          reject(new Error(cleanError || `Command failed with code ${code}`));
         }
       });
+
+      proc.on('error', (err) => {
+        if (timedOut) return;
+        reject(new Error(`Failed to run pymobiledevice3: ${err.message}`));
+      });
+
+      // 60 second timeout — auto-tunnel can take 15-20 seconds
+      setTimeout(() => {
+        if (proc.exitCode === null) {
+          timedOut = true;
+          proc.kill();
+          reject(new Error('Command timed out (60s). Make sure iPhone is connected and Developer Mode is on.'));
+        }
+      }, 60000);
     });
   }
 
-  /**
-   * Check if pymobiledevice3 installed and device connected.
-   */
   checkStatus() {
     return new Promise((resolve) => {
-      execFile('pymobiledevice3', ['usbmux', 'list'], { shell: true, timeout: 10000 }, (error, stdout, stderr) => {
+      execFile('pymobiledevice3', ['usbmux', 'list'], { shell: true, timeout: 10000 }, (error, stdout) => {
         if (error) {
           resolve({ installed: false, connected: false, error: error.message });
           return;

@@ -101,7 +101,7 @@ spoofBtn.addEventListener('click', async () => {
   if (selectedLat === null) return;
 
   spoofBtn.disabled = true;
-  setStatus('searching', `Spoofing to ${selectedLat.toFixed(6)}, ${selectedLng.toFixed(6)}...`);
+  setStatus('searching', `Spoofing to ${selectedLat.toFixed(6)}, ${selectedLng.toFixed(6)}... (may take 15-20s)`);
 
   try {
     const result = await window.ghostAPI.setLocation(selectedLat, selectedLng);
