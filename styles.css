@@ -476,6 +476,43 @@ body::after {
 
 /* ── Scrollbar ───────────────────────────────────────── */
 
+/* ── RSD Connect ─────────────────────────────────────── */
+
+.rsd-connect {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.rsd-connect input {
+  width: 280px;
+  padding: 4px 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--glass-border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: 'Consolas', monospace;
+  outline: none;
+  transition: border-color 0.3s;
+}
+
+.rsd-connect input:focus {
+  border-color: rgba(74, 108, 247, 0.5);
+}
+
+.rsd-connect input::placeholder {
+  color: var(--text-muted);
+  font-family: 'Segoe UI', system-ui, sans-serif;
+}
+
+.rsd-connect .btn {
+  padding: 4px 12px;
+  font-size: 11px;
+}
+
+/* ── Scrollbar ───────────────────────────────────────── */
+
 ::-webkit-scrollbar {
   width: 6px;
 }

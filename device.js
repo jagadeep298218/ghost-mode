@@ -2,71 +2,95 @@ const { spawn, execFile } = require('child_process');
 
 class DeviceBridge {
   constructor() {
+    this.rsdHost = null;
+    this.rsdPort = null;
     this.tunnelProcess = null;
-    this.tunnelReady = false;
   }
 
   /**
-   * Start pymobiledevice3 tunnel for iOS 17+.
-   * Uses lockdown (USB-based) instead of remote (Bonjour-based).
+   * Set RSD address from user input or tunnel output.
+   */
+  setRsd(host, port) {
+    this.rsdHost = host;
+    this.rsdPort = port;
+  }
+
+  hasRsd() {
+    return this.rsdHost && this.rsdPort;
+  }
+
+  /**
+   * Start tunnel and parse RSD host/port from output.
+   * Requires admin privileges.
    */
   startTunnel() {
     return new Promise((resolve, reject) => {
       if (this.tunnelProcess) {
-        resolve({ alreadyRunning: true });
+        resolve({ alreadyRunning: true, host: this.rsdHost, port: this.rsdPort });
         return;
       }
 
-      this.tunnelProcess = spawn('pymobiledevice3', ['lockdown', 'start-tunnel'], {
+      this.tunnelProcess = spawn('pymobiledevice3', ['remote', 'start-tunnel'], {
         shell: true
       });
 
       let output = '';
       let resolved = false;
 
-      const doResolve = (result) => {
+      const doResolve = (host, port) => {
         if (!resolved) {
           resolved = true;
-          this.tunnelReady = true;
-          resolve(result);
+          this.rsdHost = host;
+          this.rsdPort = port;
+          resolve({ ready: true, host, port });
         }
       };
 
-      const doReject = (err) => {
-        if (!resolved) {
-          resolved = true;
-          reject(err);
+      const checkOutput = () => {
+        // Parse "--rsd HOST PORT" from output
+        const match = output.match(/--rsd\s+(\S+)\s+(\d+)/);
+        if (match) {
+          doResolve(match[1], match[2]);
         }
       };
 
       this.tunnelProcess.stdout.on('data', (data) => {
         output += data.toString();
+        checkOutput();
       });
 
       this.tunnelProcess.stderr.on('data', (data) => {
         output += data.toString();
+        checkOutput();
       });
 
       this.tunnelProcess.on('error', (err) => {
         this.tunnelProcess = null;
-        this.tunnelReady = false;
-        doReject(new Error(`Failed to start tunnel: ${err.message}`));
+        if (!resolved) {
+          resolved = true;
+          reject(new Error(`Tunnel failed: ${err.message}`));
+        }
       });
 
       this.tunnelProcess.on('close', (code) => {
         this.tunnelProcess = null;
-        this.tunnelReady = false;
         if (!resolved) {
-          doReject(new Error(`Tunnel exited (code ${code}).\n${output}`));
+          resolved = true;
+          reject(new Error(
+            `Tunnel exited (code ${code}). Run as Administrator.\n` +
+            `Or start tunnel manually in admin terminal:\n` +
+            `pymobiledevice3 remote start-tunnel`
+          ));
         }
       });
 
-      // Assume ready after 8s if process still alive
+      // Timeout after 20s
       setTimeout(() => {
-        if (!resolved && this.tunnelProcess) {
-          doResolve({ ready: true, output: output.trim(), assumed: true });
+        if (!resolved) {
+          resolved = true;
+          reject(new Error('Tunnel timed out. Start it manually in admin terminal:\npymobiledevice3 remote start-tunnel'));
         }
-      }, 8000);
+      }, 20000);
     });
   }
 
@@ -74,36 +98,42 @@ class DeviceBridge {
     if (this.tunnelProcess) {
       this.tunnelProcess.kill();
       this.tunnelProcess = null;
-      this.tunnelReady = false;
     }
   }
 
   /**
-   * Set simulated location using spawn (not execFile) so pymobiledevice3
-   * can auto-tunnel in-process for iOS 17+. This takes 10-20 seconds
-   * as it establishes its own userspace tunnel.
+   * Set simulated location using --rsd flag.
    */
   setLocation(lat, lng) {
-    return this._runLocationCommand(['developer', 'dvt', 'simulate-location', 'set', '--', String(lat), String(lng)]);
-  }
-
-  clearLocation() {
-    return this._runLocationCommand(['developer', 'dvt', 'simulate-location', 'clear']);
+    if (!this.hasRsd()) {
+      return Promise.reject(new Error('No RSD connection. Enter tunnel host:port or start tunnel first.'));
+    }
+    return this._runCommand([
+      'developer', 'dvt', 'simulate-location', 'set',
+      '--rsd', this.rsdHost, this.rsdPort,
+      '--', String(lat), String(lng)
+    ]);
   }
 
   /**
-   * Run a pymobiledevice3 developer command using spawn.
-   * Lets the process auto-create a userspace tunnel in-process.
-   * Waits for process to exit, captures all output.
+   * Clear simulated location.
    */
-  _runLocationCommand(args) {
-    return new Promise((resolve, reject) => {
-      const env = { ...process.env, PYMOBILEDEVICE3_DEFAULT_FALLBACK: 'userspace' };
+  clearLocation() {
+    if (!this.hasRsd()) {
+      return Promise.reject(new Error('No RSD connection.'));
+    }
+    return this._runCommand([
+      'developer', 'dvt', 'simulate-location', 'clear',
+      '--rsd', this.rsdHost, this.rsdPort
+    ]);
+  }
 
-      const proc = spawn('pymobiledevice3', args, {
-        shell: true,
-        env
-      });
+  /**
+   * Run pymobiledevice3 command, handle "Press ENTER" prompt.
+   */
+  _runCommand(args) {
+    return new Promise((resolve, reject) => {
+      const proc = spawn('pymobiledevice3', args, { shell: true });
 
       let stdout = '';
       let stderr = '';
@@ -112,24 +142,22 @@ class DeviceBridge {
       const doResolve = () => {
         if (!resolved) {
           resolved = true;
-          // Send ENTER to dismiss "Press ENTER to exit>" prompt, then kill
           try { proc.stdin.write('\n'); } catch (e) {}
           setTimeout(() => { try { proc.kill(); } catch (e) {} }, 500);
-          resolve({ stdout: stdout.trim(), stderr: stderr.trim() });
+          resolve({ success: true, stdout: stdout.trim() });
         }
       };
 
-      const doReject = (err) => {
+      const doReject = (msg) => {
         if (!resolved) {
           resolved = true;
           try { proc.kill(); } catch (e) {}
-          reject(err);
+          reject(new Error(msg));
         }
       };
 
       proc.stdout.on('data', (data) => {
         stdout += data.toString();
-        // pymobiledevice3 prints "Press ENTER to exit>" when done successfully
         if (stdout.includes('Press ENTER') || stdout.includes('press enter')) {
           doResolve();
         }
@@ -144,8 +172,8 @@ class DeviceBridge {
         if (code === 0) {
           doResolve();
         } else {
-          const combined = stderr + stdout;
-          const lines = combined.split('\n').filter(l =>
+          // Clean up error output
+          const lines = (stderr + stdout).split('\n').filter(l =>
             !l.includes('RequestsDependencyWarning') &&
             !l.includes('warnings.warn') &&
             !l.includes('DeprecationWarning') &&
@@ -154,19 +182,17 @@ class DeviceBridge {
             !l.includes('dateutil/tz') &&
             l.trim().length > 0
           );
-          const cleanError = lines.join('\n').trim();
-          doReject(new Error(cleanError || `Command failed with code ${code}`));
+          doReject(lines.join('\n').trim() || `Command failed (code ${code})`);
         }
       });
 
       proc.on('error', (err) => {
-        doReject(new Error(`Failed to run pymobiledevice3: ${err.message}`));
+        doReject(`Failed to run pymobiledevice3: ${err.message}`);
       });
 
-      // 90 second timeout — auto-tunnel can take 15-30 seconds
       setTimeout(() => {
-        doReject(new Error('Command timed out (90s). Make sure iPhone is connected and Developer Mode is on.'));
-      }, 90000);
+        doReject('Command timed out (60s). Check iPhone connection and Developer Mode.');
+      }, 60000);
     });
   }
 

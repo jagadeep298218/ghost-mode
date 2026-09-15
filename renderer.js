@@ -206,6 +206,37 @@ function setStatus(state, message) {
   statusText.textContent = message;
 }
 
+// ── RSD Connection ───────────────────────────────────────────
+const rsdInput = document.getElementById('rsdInput');
+const rsdConnectBtn = document.getElementById('rsdConnectBtn');
+
+if (rsdConnectBtn) {
+  rsdConnectBtn.addEventListener('click', async () => {
+    const val = rsdInput.value.trim();
+    if (!val) return;
+
+    // Parse "host port" or "host:port"
+    let host, port;
+    if (val.includes(' ')) {
+      [host, port] = val.split(/\s+/);
+    } else if (val.match(/:\d+$/)) {
+      const lastColon = val.lastIndexOf(':');
+      // Handle IPv6 like [fd20::1]:63882 or fd20::1 63882
+      port = val.slice(lastColon + 1);
+      host = val.slice(0, lastColon);
+    } else {
+      setStatus('error', 'Enter: host port (from tunnel output)');
+      return;
+    }
+
+    const result = await window.ghostAPI.setRsd(host, port);
+    if (result.ok) {
+      setStatus('connected', `Connected to tunnel at ${host}:${port}`);
+      rsdInput.style.borderColor = '#2ecc71';
+    }
+  });
+}
+
 // ── Startup ──────────────────────────────────────────────────
 async function init() {
   setStatus('searching', 'Checking device...');
@@ -220,7 +251,7 @@ async function init() {
     return;
   }
 
-  setStatus('connected', 'Device connected — ready to spoof');
+  setStatus('error', 'Enter tunnel host:port below. Run "pymobiledevice3 remote start-tunnel" in admin terminal.');
   loadHome();
 }
 

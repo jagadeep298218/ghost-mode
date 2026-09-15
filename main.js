@@ -63,6 +63,15 @@ ipcMain.handle('device:start-tunnel', async () => {
   }
 });
 
+ipcMain.handle('device:set-rsd', (_event, host, port) => {
+  device.setRsd(host, port);
+  return { ok: true, host, port };
+});
+
+ipcMain.handle('device:has-rsd', () => {
+  return { hasRsd: device.hasRsd(), host: device.rsdHost, port: device.rsdPort };
+});
+
 ipcMain.handle('device:set-location', async (_event, lat, lng) => {
   try {
     return await device.setLocation(lat, lng);
