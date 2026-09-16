@@ -1,4 +1,5 @@
 ﻿pymobiledevice3==11.12.5
 pytun-pmd3==3.0.3
 pyinstaller==6.22.3
+apple_compress>=0.2.1; sys_platform == "darwin"
 

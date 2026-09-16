@@ -1,13 +1,20 @@
 # -*- mode: python ; coding: utf-8 -*-
+import sys
 from PyInstaller.utils.hooks import collect_all
 
 datas = []
 binaries = []
 hiddenimports = []
-tmp_ret = collect_all('pymobiledevice3')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('pytun_pmd3')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+for pkg in ['pymobiledevice3', 'pytun_pmd3']:
+    tmp_ret = collect_all(pkg)
+    datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+if sys.platform == 'darwin':
+    for pkg in ['apple_compress', 'opack', 'srptools']:
+        try:
+            tmp_ret = collect_all(pkg)
+            datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+        except Exception:
+            hiddenimports.append(pkg)
 
 
 a = Analysis(
