@@ -41,7 +41,7 @@ Only mark an asset available in downloads-config.js after its URL exists. The si
 
 ## Signing
 
-For trusted public Mac distribution, supply CSC_LINK and CSC_KEY_PASSWORD for a Developer ID Application certificate and APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, and APPLE_TEAM_ID for notarization in GitHub repository secrets. Do not commit credentials. Without these, the build is unsigned/ad-hoc signed and is not notarized; macOS may block opening a downloaded build. The workflow supports building before signing credentials are configured.
+For trusted public Mac distribution, supply CSC_LINK and CSC_KEY_PASSWORD for a Developer ID Application certificate and APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, and APPLE_TEAM_ID for notarization in GitHub repository secrets. Do not commit credentials. Without these, the build is unsigned/ad-hoc signed and is not notarized; macOS may block opening a downloaded build. The workflow builds unsigned artifacts by default so empty signing secrets cannot be misread as filesystem paths. To sign and notarize, add a dedicated signing step with non-empty certificate and Apple credentials after the unsigned build is working.
 
 ## Validation
 
@@ -55,3 +55,4 @@ node build-tools/configure-downloads.cjs OWNER/REPO
 ```
 
 This verifies every download URL before enabling it and updates website repository links. Deploy index.html, styles.css, script.js, downloads-config.js, downloads.js, ghost-logo.jpeg and assets/. For local testing, the Windows executable is served from website/downloads/.
+

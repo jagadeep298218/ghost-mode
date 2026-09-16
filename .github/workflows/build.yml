@@ -41,12 +41,11 @@ jobs:
       - run: python build-tools/build_helpers.py
       - name: Package native app
         run: node node_modules/electron-builder/cli.js --${{ matrix.target }} --${{ matrix.arch }} --publish never
+
         env:
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Build unsigned by default. Empty CSC_LINK values are interpreted as a path by electron-builder.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
       - uses: actions/upload-artifact@v4
         with:
           name: ghost-mode-${{ matrix.target }}-${{ matrix.arch }}
@@ -73,4 +72,5 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           gh release create "$RELEASE_TAG" artifacts/* --verify-tag --title "Ghost Mode $RELEASE_TAG" --generate-notes
+
 

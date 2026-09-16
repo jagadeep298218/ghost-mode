@@ -43,7 +43,8 @@
       "Read(//c/Program Files/WindowsApps//**)",
       "Bash(pymobiledevice3 amfi:*)",
       "Bash(start:*)",
-      "WebFetch(domain:pymobiledevice3.readthedocs.io)"
+      "WebFetch(domain:pymobiledevice3.readthedocs.io)",
+      "Bash(gh workflow:*)"
     ]
   }
 }
