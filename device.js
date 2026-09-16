@@ -5,11 +5,12 @@ class DeviceBridge {
     this.rsdHost = null;
     this.rsdPort = null;
     this.tunnelProcess = null;
+    this.spoofProcess = null;
+    this.jitterInterval = null;
+    this.currentLat = null;
+    this.currentLng = null;
   }
 
-  /**
-   * Set RSD address from user input or tunnel output.
-   */
   setRsd(host, port) {
     this.rsdHost = host;
     this.rsdPort = port;
@@ -19,10 +20,6 @@ class DeviceBridge {
     return this.rsdHost && this.rsdPort;
   }
 
-  /**
-   * Start tunnel and parse RSD host/port from output.
-   * Requires admin privileges.
-   */
   startTunnel() {
     return new Promise((resolve, reject) => {
       if (this.tunnelProcess) {
@@ -47,49 +44,28 @@ class DeviceBridge {
       };
 
       const checkOutput = () => {
-        // Parse "--rsd HOST PORT" from output
         const match = output.match(/--rsd\s+(\S+)\s+(\d+)/);
-        if (match) {
-          doResolve(match[1], match[2]);
-        }
+        if (match) doResolve(match[1], match[2]);
       };
 
-      this.tunnelProcess.stdout.on('data', (data) => {
-        output += data.toString();
-        checkOutput();
-      });
-
-      this.tunnelProcess.stderr.on('data', (data) => {
-        output += data.toString();
-        checkOutput();
-      });
+      this.tunnelProcess.stdout.on('data', (data) => { output += data.toString(); checkOutput(); });
+      this.tunnelProcess.stderr.on('data', (data) => { output += data.toString(); checkOutput(); });
 
       this.tunnelProcess.on('error', (err) => {
         this.tunnelProcess = null;
-        if (!resolved) {
-          resolved = true;
-          reject(new Error(`Tunnel failed: ${err.message}`));
-        }
+        if (!resolved) { resolved = true; reject(new Error(`Tunnel failed: ${err.message}`)); }
       });
 
       this.tunnelProcess.on('close', (code) => {
         this.tunnelProcess = null;
         if (!resolved) {
           resolved = true;
-          reject(new Error(
-            `Tunnel exited (code ${code}). Run as Administrator.\n` +
-            `Or start tunnel manually in admin terminal:\n` +
-            `pymobiledevice3 remote start-tunnel`
-          ));
+          reject(new Error(`Tunnel exited (code ${code}). Run as Administrator.`));
         }
       });
 
-      // Timeout after 20s
       setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          reject(new Error('Tunnel timed out. Start it manually in admin terminal:\npymobiledevice3 remote start-tunnel'));
-        }
+        if (!resolved) { resolved = true; reject(new Error('Tunnel timed out.')); }
       }, 20000);
     });
   }
@@ -102,38 +78,28 @@ class DeviceBridge {
   }
 
   /**
-   * Set simulated location using --rsd flag.
+   * Set location and KEEP the DVT channel alive.
+   * Also starts GPS jitter to simulate natural drift.
    */
   setLocation(lat, lng) {
     if (!this.hasRsd()) {
-      return Promise.reject(new Error('No RSD connection. Enter tunnel host:port or start tunnel first.'));
+      return Promise.reject(new Error('No RSD connection. Enter tunnel host:port first.'));
     }
-    return this._runCommand([
-      'developer', 'dvt', 'simulate-location', 'set',
-      '--rsd', this.rsdHost, this.rsdPort,
-      '--', String(lat), String(lng)
-    ]);
-  }
 
-  /**
-   * Clear simulated location.
-   */
-  clearLocation() {
-    if (!this.hasRsd()) {
-      return Promise.reject(new Error('No RSD connection.'));
-    }
-    return this._runCommand([
-      'developer', 'dvt', 'simulate-location', 'clear',
-      '--rsd', this.rsdHost, this.rsdPort
-    ]);
-  }
+    // Kill any existing spoof process
+    this.stopSpoofing();
 
-  /**
-   * Run pymobiledevice3 command, handle "Press ENTER" prompt.
-   */
-  _runCommand(args) {
+    this.currentLat = lat;
+    this.currentLng = lng;
+
     return new Promise((resolve, reject) => {
-      const proc = spawn('pymobiledevice3', args, { shell: true });
+      const args = [
+        'developer', 'dvt', 'simulate-location', 'set',
+        '--rsd', this.rsdHost, this.rsdPort,
+        '--', String(lat), String(lng)
+      ];
+
+      this.spoofProcess = spawn('pymobiledevice3', args, { shell: true });
 
       let stdout = '';
       let stderr = '';
@@ -142,37 +108,41 @@ class DeviceBridge {
       const doResolve = () => {
         if (!resolved) {
           resolved = true;
-          try { proc.stdin.write('\n'); } catch (e) {}
-          setTimeout(() => { try { proc.kill(); } catch (e) {} }, 500);
-          resolve({ success: true, stdout: stdout.trim() });
+          // DON'T kill the process — keep DVT channel alive
+          this._startJitter();
+          resolve({ success: true });
         }
       };
 
       const doReject = (msg) => {
         if (!resolved) {
           resolved = true;
-          try { proc.kill(); } catch (e) {}
+          this.stopSpoofing();
           reject(new Error(msg));
         }
       };
 
-      proc.stdout.on('data', (data) => {
+      this.spoofProcess.stdout.on('data', (data) => {
         stdout += data.toString();
         if (stdout.includes('Press ENTER') || stdout.includes('press enter')) {
           doResolve();
         }
       });
 
-      proc.stderr.on('data', (data) => {
+      this.spoofProcess.stderr.on('data', (data) => {
         stderr += data.toString();
       });
 
-      proc.on('close', (code) => {
-        if (resolved) return;
+      this.spoofProcess.on('close', (code) => {
+        if (resolved) {
+          // Process died after we resolved — spoof may have ended
+          this.spoofProcess = null;
+          this._stopJitter();
+          return;
+        }
         if (code === 0) {
           doResolve();
         } else {
-          // Clean up error output
           const lines = (stderr + stdout).split('\n').filter(l =>
             !l.includes('RequestsDependencyWarning') &&
             !l.includes('warnings.warn') &&
@@ -186,13 +156,127 @@ class DeviceBridge {
         }
       });
 
-      proc.on('error', (err) => {
+      this.spoofProcess.on('error', (err) => {
         doReject(`Failed to run pymobiledevice3: ${err.message}`);
       });
 
       setTimeout(() => {
-        doReject('Command timed out (60s). Check iPhone connection and Developer Mode.');
+        doReject('Command timed out (60s).');
       }, 60000);
+    });
+  }
+
+  /**
+   * Start GPS jitter — every 5 seconds, re-set location with slight random drift.
+   * This makes the location look natural to apps like Life360.
+   */
+  _startJitter() {
+    this._stopJitter();
+
+    this.jitterInterval = setInterval(() => {
+      if (!this.spoofProcess || !this.currentLat) return;
+
+      // Random drift: ~2-5 meters in each direction
+      const jitterLat = (Math.random() - 0.5) * 0.00005;
+      const jitterLng = (Math.random() - 0.5) * 0.00005;
+      const lat = this.currentLat + jitterLat;
+      const lng = this.currentLng + jitterLng;
+
+      // Fire and forget — spawn a quick set command
+      const args = [
+        'developer', 'dvt', 'simulate-location', 'set',
+        '--rsd', this.rsdHost, this.rsdPort,
+        '--', String(lat), String(lng)
+      ];
+
+      const jitterProc = spawn('pymobiledevice3', args, { shell: true });
+
+      // Auto-dismiss "Press ENTER" and kill after brief delay
+      let jitterOut = '';
+      jitterProc.stdout.on('data', (data) => {
+        jitterOut += data.toString();
+        if (jitterOut.includes('Press ENTER')) {
+          try { jitterProc.stdin.write('\n'); } catch (e) {}
+          setTimeout(() => { try { jitterProc.kill(); } catch (e) {} }, 500);
+        }
+      });
+
+      // Kill after 30s max
+      setTimeout(() => { try { jitterProc.kill(); } catch (e) {} }, 30000);
+    }, 8000); // Every 8 seconds
+  }
+
+  _stopJitter() {
+    if (this.jitterInterval) {
+      clearInterval(this.jitterInterval);
+      this.jitterInterval = null;
+    }
+  }
+
+  /**
+   * Stop spoofing — kill process, stop jitter, clear location.
+   */
+  stopSpoofing() {
+    this._stopJitter();
+    if (this.spoofProcess) {
+      try { this.spoofProcess.stdin.write('\n'); } catch (e) {}
+      setTimeout(() => {
+        try { this.spoofProcess.kill(); } catch (e) {}
+        this.spoofProcess = null;
+      }, 500);
+    }
+  }
+
+  /**
+   * Clear simulated location and stop everything.
+   */
+  clearLocation() {
+    this.stopSpoofing();
+
+    if (!this.hasRsd()) {
+      return Promise.reject(new Error('No RSD connection.'));
+    }
+
+    return new Promise((resolve, reject) => {
+      const args = [
+        'developer', 'dvt', 'simulate-location', 'clear',
+        '--rsd', this.rsdHost, this.rsdPort
+      ];
+
+      const proc = spawn('pymobiledevice3', args, { shell: true });
+      let stdout = '';
+      let resolved = false;
+
+      const done = () => {
+        if (!resolved) {
+          resolved = true;
+          try { proc.stdin.write('\n'); } catch (e) {}
+          setTimeout(() => { try { proc.kill(); } catch (e) {} }, 500);
+          this.currentLat = null;
+          this.currentLng = null;
+          resolve({ success: true });
+        }
+      };
+
+      proc.stdout.on('data', (data) => {
+        stdout += data.toString();
+        if (stdout.includes('Press ENTER')) done();
+      });
+
+      proc.on('close', (code) => {
+        if (!resolved) {
+          if (code === 0) done();
+          else { resolved = true; reject(new Error(`Clear failed (code ${code})`)); }
+        }
+      });
+
+      proc.on('error', (err) => {
+        if (!resolved) { resolved = true; reject(new Error(err.message)); }
+      });
+
+      setTimeout(() => {
+        if (!resolved) { resolved = true; proc.kill(); resolve({ success: true }); }
+      }, 30000);
     });
   }
 
@@ -210,6 +294,7 @@ class DeviceBridge {
   }
 
   destroy() {
+    this.stopSpoofing();
     this.stopTunnel();
   }
 }

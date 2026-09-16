@@ -111,7 +111,7 @@ spoofBtn.addEventListener('click', async () => {
       return;
     }
     isSpoofing = true;
-    setStatus('spoofing', `Spoofing: ${selectedLat.toFixed(6)}, ${selectedLng.toFixed(6)}`);
+    setStatus('spoofing', `Spoofing active (with GPS jitter). Turn off Wi-Fi on iPhone for best results.`);
     resetBtn.disabled = false;
     spoofBtn.disabled = false;
   } catch (err) {
@@ -169,7 +169,7 @@ goHomeBtn.addEventListener('click', async () => {
       return;
     }
     isSpoofing = true;
-    setStatus('spoofing', `Spoofing to home: ${home.label}`);
+    setStatus('spoofing', `Spoofing to home (with GPS jitter). Turn off Wi-Fi for best results.`);
     resetBtn.disabled = false;
     goHomeBtn.disabled = false;
   } catch (err) {
