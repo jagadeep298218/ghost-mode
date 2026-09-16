@@ -13,6 +13,15 @@ for pkg in ['pymobiledevice3', 'pyimg4', 'pytun-pmd3']:
         datas += copy_metadata(pkg, recursive=True)
     except Exception:
         pass
+# sslpsk_pmd3 bundles an older libcrypto on macOS. Leaving it beside
+# cryptography's Rust extension causes dyld to resolve the wrong OpenSSL ABI.
+# The Mac app uses pymobiledevice3's native remote tunnel, so omit that
+# classic-tunnel dylib; Windows retains its normal bundled dependencies.
+if sys.platform == 'darwin':
+    def _is_sslpsk_dylib(entry):
+        return 'sslpsk_pmd3' in str(entry[0]).replace('\\\\', '/') and '.dylib' in str(entry[0])
+    binaries = [entry for entry in binaries if not _is_sslpsk_dylib(entry)]
+    datas = [entry for entry in datas if not _is_sslpsk_dylib(entry)]
 if sys.platform == 'darwin':
     for pkg in ['apple_compress', 'opack', 'srptools']:
         try:
