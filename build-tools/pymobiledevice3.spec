@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 import sys
-from PyInstaller.utils.hooks import collect_all
+from PyInstaller.utils.hooks import collect_all, copy_metadata
 
 datas = []
 binaries = []
@@ -8,6 +8,11 @@ hiddenimports = []
 for pkg in ['pymobiledevice3', 'pytun_pmd3']:
     tmp_ret = collect_all(pkg)
     datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+for pkg in ['pymobiledevice3', 'pyimg4', 'pytun-pmd3']:
+    try:
+        datas += copy_metadata(pkg, recursive=True)
+    except Exception:
+        pass
 if sys.platform == 'darwin':
     for pkg in ['apple_compress', 'opack', 'srptools']:
         try:
