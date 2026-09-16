@@ -1,0 +1,4 @@
+﻿pymobiledevice3==11.12.5
+pytun-pmd3==3.0.3
+pyinstaller==6.22.3
+

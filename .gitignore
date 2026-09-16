@@ -1,3 +1,14 @@
 node_modules/
 dist/
 out/
+
+release/
+dist-theme/
+resources/
+.venv/
+__pycache__/
+build-tools/build/
+build-tools/dist/
+docs/website/downloads/
+docs/website/*preview*
+docs/website/app-theme-backup/
